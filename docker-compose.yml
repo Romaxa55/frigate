@@ -1,7 +1,7 @@
 version: "3"
 services:
-  devcontainer:
-    container_name: frigate-devcontainer
+  frigate:
+    container_name: frigate
     # add groups from host for render, plugdev, video
     group_add:
       - "109" # render
@@ -13,7 +13,7 @@ services:
       context: .
       dockerfile: docker/main/Dockerfile
       # Use target devcontainer-trt for TensorRT dev
-      target: devcontainer
+      target: frigate
     ## Uncomment this block for nvidia gpu support
     # deploy:
     #       resources:
@@ -33,9 +33,84 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./config:/config
       - ./debug:/media/frigate
+      - ./storage:/media/frigate
       - /dev/bus/usb:/dev/bus/usb
+    env_file:
+      - .env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frigate.tls=true
+      - traefik.http.routers.frigate.rule=Host(`webcam.${DOMAIN}`)
+      - traefik.http.routers.frigate.entrypoints=websecure
+      - traefik.http.routers.frigate.tls.certresolver=myresolver
+      - traefik.http.services.frigate.loadbalancer.server.port=5000
+      - traefik.http.routers.frigate.middlewares=simple-auth
   mqtt:
     container_name: mqtt
     image: eclipse-mosquitto:1.6
     ports:
       - "1883:1883"
+
+    # Simpleauth
+  simpleauth:
+    container_name: simpleauth
+    image: zix99/simple-auth:latest
+    volumes:
+      - ./config:/var/lib/simple-auth
+    env_file:
+      - .env
+    environment:
+      SA_PROVIDERS_SETTINGS_CREATEACCOUNTENABLED: "false"
+      SA_VERBOSE: 'true'
+      SA_WEB_LOGIN_SETTINGS_ROUTEONLOGIN: "https://webcam.${DOMAIN}"
+      # Allow login to send user back to any subdomain
+      SA_WEB_LOGIN_SETTINGS_ALLOWEDCONTINUEURLS: 'https?://.*${DOMAIN}(:\d+)?/.*'
+      SA_WEB_LOGIN_COOKIE_DOMAIN: ${DOMAIN} # IMPORTANT: Higher-level domain
+      SA_WEB_BASEURL: https://auth.${DOMAIN}
+      SA_AUTHENTICATORS_VOUCH_ENABLED: 'true'
+      # The vouch endpoint will put the user's UUID on this header to be forwarded
+      SA_AUTHENTICATORS_VOUCH_USERHEADER: 'X-User-Id'
+      SA_WEB_LOGIN_COOKIE_JWT_EXPIRESMINUTES: 525600
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.simpleauth.tls=true
+      - traefik.http.routers.simpleauth.rule=Host(`auth.${DOMAIN}`)
+      - traefik.http.routers.simpleauth.entrypoints=websecure
+      - traefik.http.routers.simpleauth.tls.certresolver=myresolver
+      - traefik.http.services.simpleauth.loadbalancer.server.port=80
+      - traefik.http.middlewares.simple-auth.forwardauth.address=http://simpleauth/api/v1/auth/vouch?forward=1
+      - traefik.http.middlewares.simple-auth.forwardauth.authResponseHeaders=X-User-Id
+
+  traefik:
+    image: "traefik:latest"
+    container_name: traefik
+    command:
+      - --log.level=INFO
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.myresolver.acme.dnschallenge=true
+      - --certificatesresolvers.myresolver.acme.dnschallenge.provider=cloudflare
+      - --certificatesresolvers.myresolver.acme.email=info@${DOMAIN}
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - letsencrypt:/letsencrypt
+    labels:
+      - "traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+
+volumes:
+  letsencrypt:
+    driver: local
