@@ -91,11 +91,11 @@ class OnvifController:
         profile = None
         for key, onvif_profile in enumerate(profiles):
             if (
-                onvif_profile.VideoEncoderConfiguration
-                and onvif_profile.VideoEncoderConfiguration.Encoding == "H264"
-                and onvif_profile.PTZConfiguration
-                and onvif_profile.PTZConfiguration.DefaultContinuousPanTiltVelocitySpace
-                is not None
+                    onvif_profile.VideoEncoderConfiguration
+                    and onvif_profile.VideoEncoderConfiguration.Encoding in ["H264", "H265"]
+                    and onvif_profile.PTZConfiguration
+                    and onvif_profile.PTZConfiguration.DefaultContinuousPanTiltVelocitySpace
+                    is not None
             ):
                 profile = onvif_profile
                 logger.debug(f"Selected Onvif profile for {camera_name}: {profile}")
