@@ -11,7 +11,7 @@ services:
     shm_size: "256mb"
     build:
       context: .
-      dockerfile: docker/main/Dockerfile
+      dockerfile: Dockerfile
       # Use target devcontainer-trt for TensorRT dev
       target: frigate
     ## Uncomment this block for nvidia gpu support
